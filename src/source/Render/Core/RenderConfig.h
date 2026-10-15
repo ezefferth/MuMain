@@ -34,6 +34,10 @@ extern bool g_SortParticleDraws;
 // RemasterLighting (padrão 1). 0 volta à iluminação por vértice original.
 extern bool g_RemasterLighting;
 
+// Remaster: verdadeiro enquanto RenderCharactersClient desenha um personagem (jogador, NPC,
+// monstro). O shader de modelos usa para aplicar a luz de contorno (rim light) só neles.
+extern bool g_RemasterRimTarget;
+
 // Vsync flag mirroring SDL's actual swap interval (ZzzOpenglUtil.cpp's EnableVSync/
 // DisableVSync call SDL_GL_SetSwapInterval). Default true matches EnableVSync()'s
 // unconditional call at boot (Winmain.cpp).

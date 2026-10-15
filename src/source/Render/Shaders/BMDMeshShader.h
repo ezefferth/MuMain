@@ -18,7 +18,7 @@ public:
 
     // Remaster: vale só para o próximo Bind() (zerado depois dele), para que caminhos de
     // desenho que não chamam isto nunca herdem o estado. normalTexID 0 = sem normal map.
-    void SetRemaster(bool perPixelLighting, GLuint normalTexID, float normalStrength);
+    void SetRemaster(bool perPixelLighting, GLuint normalTexID, float normalStrength, float rimStrength = 0.0f);
 
     GLuint GetProgram() const { return m_Program; }
     bool IsCreated() const { return m_Program != 0; }
@@ -47,6 +47,7 @@ private:
     bool   m_PendingRemaster = false;
     GLuint m_PendingNormalTex = 0;
     float  m_PendingNormalStrength = 1.0f;
+    float  m_PendingRimStrength = 0.0f;
 
     // GLS-09: all non-sampler BMDMeshShader uniforms, consolidated into one std140 UBO
     // (binding slot 6) instead of ~18 discrete glUniform* calls per draw. Field order/
@@ -77,7 +78,7 @@ private:
         int32_t remaster;        // 1 = iluminação por pixel (RenderMode 0, GPU skin, luz ligada)
         int32_t hasNormalMap;
         float   normalStrength;
-        float   _pad2;
+        float   rimStrength;     // luz de contorno (personagens); 0 = desligada
     };
     static_assert(sizeof(BMDFlagsCB) == 192, "BMDFlagsCB must match the GLSL BMDFlags block layout byte-for-byte");
 

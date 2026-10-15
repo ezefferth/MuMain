@@ -27,6 +27,7 @@ bool g_SortParticleDraws = false;
 
 // See RenderConfig.h.
 bool g_RemasterLighting = true;
+bool g_RemasterRimTarget = false;
 
 void InitRenderConfig()
 {

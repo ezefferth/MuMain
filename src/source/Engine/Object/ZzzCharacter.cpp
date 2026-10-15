@@ -11472,10 +11472,12 @@ void RenderCharactersClient()
         {
             if (o->Visible)
             {
+                g_RemasterRimTarget = true;
                 if (i != SelectedCharacter && i != SelectedNpc)
                     RenderCharacter(c, o);
                 else
                     RenderCharacter(c, o, true);
+                g_RemasterRimTarget = false;
 
                 if (o->Type == MODEL_PLAYER)
                     battleCastle::CreateBattleCastleCharacter_Visual(c, o);

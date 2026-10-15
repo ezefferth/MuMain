@@ -160,7 +160,7 @@ layout(std140) uniform BMDFlags {
     int   u_Remaster;
     int   u_HasNormalMap;
     float u_NormalStrength;
-    float _pad2;
+    float u_RimStrength;
 };
 
 out vec2 v_UV;
@@ -178,6 +178,7 @@ out vec2 v_ChromeUV2;
 // Remaster: normal e posição no espaço do esqueleto (o mesmo de u_LightDir), por pixel.
 out vec3 v_Normal;
 out vec3 v_LocalPos;
+out vec3 v_ViewNormal; // Remaster: rim light
 
 void main() {
     vec3 skinnedNormal = a_Normal;
@@ -249,6 +250,9 @@ void main() {
     }
     v_Color = gpuSkinColor;
     v_Normal = skinnedNormal;
+    // Os ossos já incluem a rotação do corpo (worldPos = origem + escala * bonePos), então a
+    // normal está orientada no mundo e u_View a leva para o espaço da câmera.
+    v_ViewNormal = mat3(u_View) * skinnedNormal;
     v_ChromeUV = chromeUV;
     if (u_RenderMode == 0) {
         v_UV = a_UV + vec2(u_WaveOffsetU, u_WaveOffsetV);
@@ -332,7 +336,7 @@ layout(std140) uniform BMDFlags {
     int   u_Remaster;
     int   u_HasNormalMap;
     float u_NormalStrength;
-    float _pad2;
+    float u_RimStrength;
 };
 
 in vec2 v_UV;
@@ -342,6 +346,7 @@ in vec2 v_ChromeUVStatic;
 in vec2 v_ChromeUV2;
 in vec3 v_Normal;
 in vec3 v_LocalPos;
+in vec3 v_ViewNormal;
 
 out vec4 fragColor;
 
@@ -424,6 +429,13 @@ void main() {
         float lum = max(dot(N, u_LightDir) * 0.8 + 0.4, 0.2);
         vec4 lit = clamp(vec4(u_BodyLight * lum, u_Alpha), 0.0, 1.0);
         fragColor = texture(u_Tex, v_UV) * lit;
+        if (u_RimStrength > 0.0) {
+            // Luz de contorno: realça a silhueta de personagens contra o chão escuro, com o
+            // brilho do local (u_BodyLight) para não acender personagem em área sombria.
+            float facing = clamp(normalize(v_ViewNormal).z, 0.0, 1.0);
+            float rim = pow(1.0 - facing, 3.0) * u_RimStrength;
+            fragColor.rgb += rim * vec3(0.75, 0.82, 1.0) * clamp(u_BodyLight, 0.0, 1.0);
+        }
     } else {
         // RENDER_TEXTURE / RENDER_CHROME: texture modulated by clamped vertex color
         fragColor = texture(u_Tex, v_UV) * c;
@@ -638,6 +650,7 @@ void BMDMeshShader::BindGL(int renderMode, float waveOffsetU, float waveOffsetV,
     cb.remaster = m_PendingRemaster ? 1 : 0;
     cb.hasNormalMap = (m_PendingRemaster && m_PendingNormalTex != 0) ? 1 : 0;
     cb.normalStrength = m_PendingNormalStrength;
+    cb.rimStrength = m_PendingRemaster ? m_PendingRimStrength : 0.0f;
 
     if (m_BMDFlagsUBO.IsValid()) {
         RHI::UpdateUniformBlock(m_BMDFlagsUBO, &cb, sizeof(cb));
@@ -666,13 +679,15 @@ void BMDMeshShader::BindGL(int renderMode, float waveOffsetU, float waveOffsetV,
     m_PendingRemaster = false;
     m_PendingNormalTex = 0;
     m_PendingNormalStrength = 1.0f;
+    m_PendingRimStrength = 0.0f;
 }
 
-void BMDMeshShader::SetRemaster(bool perPixelLighting, GLuint normalTexID, float normalStrength)
+void BMDMeshShader::SetRemaster(bool perPixelLighting, GLuint normalTexID, float normalStrength, float rimStrength)
 {
     m_PendingRemaster = perPixelLighting;
     m_PendingNormalTex = normalTexID;
     m_PendingNormalStrength = normalStrength;
+    m_PendingRimStrength = rimStrength;
 }
 
 void BMDMeshShader::SetTexture(GLuint texID, int slot)

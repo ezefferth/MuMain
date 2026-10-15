@@ -1840,7 +1840,8 @@ void BMD::RenderMesh(int meshIndex, int renderFlags, float alpha, int blendMeshI
                 BodyLight[2] * blendTintAlpha
             };
 
-            BMDMeshShader::Instance().SetRemaster(g_RemasterLighting, normalTexID, 1.0f);
+            BMDMeshShader::Instance().SetRemaster(g_RemasterLighting, normalTexID, 1.0f,
+                g_RemasterRimTarget ? 0.45f : 0.0f);
             BMDMeshShader::Instance().Bind(shaderRenderMode, EnableWave ? blendMeshTextureCoordU : 0.0f, EnableWave ? blendMeshTextureCoordV : 0.0f, activeTexID, mvp, 1, gpuBodyOrigin, gpuBodyScale, wave, chromeTex1ID, specularTint, metalTexID, chromeTex2ID, chromeWave2, chromeLightVecX, chromeLightVecY, m_LastLightPosition, shaderBodyLight, useLight ? 1 : 0, alpha, chromeVariant, chromeTimeTerm);
 
             const int flatCount  = m_MeshIndexCount[meshIndex];
