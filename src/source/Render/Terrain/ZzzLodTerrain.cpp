@@ -9,6 +9,8 @@
 #include <iterator>
 #include "Render/Textures/ZzzOpenglUtil.h"
 #include "Render/Core/BindState.h"
+#include "Render/Core/RenderConfig.h"
+#include <unordered_map>
 #include "Core/Utilities/FrameProfiler.h"
 #include "Render/Models/ZzzBMD.h"
 #include "ZzzLodTerrain.h"
@@ -1856,8 +1858,41 @@ struct TerrainDrawBucket
     // from anything tile-local, it must become part of the key instead.
     float baseUVScale[2] = { 0.01f, 0.01f };
     float overlayUVScale[2] = { 0.01f, 0.01f };
+    // Remaster: normal maps dos dois tiles (0 = sem). Função pura de (texBase, texOverlay),
+    // como o UV scale acima, então não entram na chave do bucket.
+    GLuint normalBase = 0;
+    GLuint normalOverlay = 0;
     std::vector<GLuint> indices; // 2 triangles (6 indices) appended per gathered tile
 };
+
+// Remaster: normal map "<tile>_N.jpg" ao lado de cada textura de tile (tools/mu-assets), achado
+// pelo nome do arquivo e guardado em cache -- vale para qualquer mapa sem listar tiles. Água e
+// tiles sem o arquivo ficam com 0. LoadImage falha em silêncio quando o arquivo não existe.
+static GLuint FindTerrainNormalTexture(const BITMAP_t* bitmap, bool isWater)
+{
+    if (!g_RemasterLighting || isWater || bitmap == nullptr || bitmap->FileName[0] == L'\0')
+        return 0;
+
+    static std::unordered_map<std::wstring, GLuint> s_NormalByFile;
+    const std::wstring fileName(bitmap->FileName);
+    auto it = s_NormalByFile.find(fileName);
+    if (it != s_NormalByFile.end())
+        return it->second;
+
+    GLuint normalTex = 0;
+    const auto dot = fileName.find_last_of(L'.');
+    if (dot != std::wstring::npos)
+    {
+        const GLuint index = Bitmaps.LoadImage(fileName.substr(0, dot) + L"_N.jpg", GL_LINEAR, GL_REPEAT);
+        if (index != BITMAP_UNKNOWN)
+        {
+            if (BITMAP_t* normal = Bitmaps.FindTexture(index))
+                normalTex = normal->TextureNumber;
+        }
+    }
+    s_NormalByFile.emplace(fileName, normalTex);
+    return normalTex;
+}
 
 // Reused across frames -- .clear()'d via g_TerrainBucketCount, never reallocated, matching
 // ImmediateRenderer.cpp's g_VertexBuffer pattern. Distinct texture pairs are few (5-20 typical)
@@ -1962,6 +1997,7 @@ static void FlushTerrainBuckets()
     {
         TerrainDrawBucket& b = g_TerrainBuckets[range.bucketIndex];
 
+        TerrainShader::Instance().SetNormalTextures(b.normalBase, b.normalOverlay);
         TerrainShader::Instance().SetBaseTexture(b.texBase);
         TerrainShader::Instance().SetOverlayTexture(b.texOverlay);
         // Upstream c6603879's per-texture UV scale, applied once per bucket instead of once per
@@ -2059,6 +2095,11 @@ void RenderTerrainFace(float xf, float yf, int xi, int yi, float lodf)
                 // render path (RenderTerrainBlock), so no recomputation needed, just reuse them
                 // in the same two-triangle winding (idx0,idx1,idx2 / idx0,idx2,idx3).
                 TerrainDrawBucket& bucket = GetTerrainBucket(b1->TextureNumber, b2->TextureNumber, baseIsWater, overlayIsWater);
+                if (bucket.indices.empty()) // bucket novo neste quadro: busca uma vez, não por tile
+                {
+                    bucket.normalBase = FindTerrainNormalTexture(b1, baseIsWater);
+                    bucket.normalOverlay = FindTerrainNormalTexture(b2, overlayIsWater);
+                }
                 bucket.indices.push_back((GLuint)TerrainIndex1);
                 bucket.indices.push_back((GLuint)TerrainIndex2);
                 bucket.indices.push_back((GLuint)TerrainIndex3);

@@ -31,6 +31,10 @@ public:
     // SetWaterFlags() — dirty-checked internally so it's a no-op glUniform-wise almost always.
     void SyncAlphaRef();
 
+    // Remaster: normal maps opcionais dos tiles de base/sobreposição (0 = sem). Com eles, o
+    // relevo modula a luz pré-calculada do terreno; chão plano mantém o brilho original.
+    void SetNormalTextures(GLuint baseNormalTex, GLuint overlayNormalTex);
+
     GLuint GetProgram() const { return m_Program; }
     bool IsCreated() const { return m_Program != 0; }
 
@@ -58,6 +62,12 @@ private:
     GLint m_LocAlphaRef = -1;
     GLint m_LocBaseUVScale = -1;
     GLint m_LocOverlayUVScale = -1;
+    GLint m_LocBaseNormalTex = -1;
+    GLint m_LocOverlayNormalTex = -1;
+    GLint m_LocHasBaseNormal = -1;
+    GLint m_LocHasOverlayNormal = -1;
+    int m_LastHasBaseNormal = -1;
+    int m_LastHasOverlayNormal = -1;
 
     // Sentinel guaranteed to differ from any real g_AlphaRef value, forcing the first
     // SyncAlphaRef() call after Create() to upload u_AlphaRef.

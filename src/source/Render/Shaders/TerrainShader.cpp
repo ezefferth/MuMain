@@ -151,6 +151,14 @@ in float v_Alpha;
 
 uniform sampler2D u_BaseTex;
 uniform sampler2D u_OverlayTex;
+// Remaster: normal maps dos tiles (slots 2/3). O terreno é um plano com UV = posição XY, então
+// o espaço tangente do normal map já é o XY do mundo.
+uniform sampler2D u_BaseNormalTex;
+uniform sampler2D u_OverlayNormalTex;
+uniform int   u_HasBaseNormal;
+uniform int   u_HasOverlayNormal;
+uniform vec2  u_TerrainLightDir;      // XY da luz dos objetos (ZzzBMD: Position = (0,-1.5,0))
+uniform float u_TerrainNormalStrength;
 // Fixed-function alpha test threshold (DXP-01), mirrored from glAlphaFunc/GL_ALPHA_TEST state.
 // -1.0 means alpha test is disabled (no discard); otherwise the GL_GREATER reference value.
 uniform float u_AlphaRef;
@@ -165,7 +173,17 @@ void main() {
     // <= matches GL_GREATER exactly (fixed-function alpha test passes when a > ref).
     if (u_AlphaRef >= 0.0 && blendedTex.a <= u_AlphaRef) discard;
 
-    FragColor = vec4(blendedTex.rgb * v_Light, blendedTex.a);
+    // Remaster: luz de detalhe -- a luz pré-calculada (v_Light) fica igual em chão plano e só o
+    // relevo do normal map clareia/escurece, na mesma direção que ilumina os objetos.
+    float detail = 1.0;
+    if (u_HasBaseNormal == 1 || u_HasOverlayNormal == 1) {
+        vec2 nBase = (u_HasBaseNormal == 1) ? texture(u_BaseNormalTex, v_UVBase).xy * 2.0 - 1.0 : vec2(0.0);
+        vec2 nOverlay = (u_HasOverlayNormal == 1) ? texture(u_OverlayNormalTex, v_UVOverlay).xy * 2.0 - 1.0 : vec2(0.0);
+        vec2 n = mix(nBase, nOverlay, clamp(v_Alpha, 0.0, 1.0));
+        detail = clamp(1.0 + u_TerrainNormalStrength * dot(n, u_TerrainLightDir), 0.5, 1.5);
+    }
+
+    FragColor = vec4(blendedTex.rgb * v_Light * detail, blendedTex.a);
 }
 )";
 
@@ -266,6 +284,12 @@ void TerrainShader::CreateGL()
     m_LocAlphaRef       = fn_glGetUniformLocation(m_Program, "u_AlphaRef");
     m_LocBaseUVScale    = fn_glGetUniformLocation(m_Program, "u_BaseUVScale");
     m_LocOverlayUVScale = fn_glGetUniformLocation(m_Program, "u_OverlayUVScale");
+    m_LocBaseNormalTex    = fn_glGetUniformLocation(m_Program, "u_BaseNormalTex");
+    m_LocOverlayNormalTex = fn_glGetUniformLocation(m_Program, "u_OverlayNormalTex");
+    m_LocHasBaseNormal    = fn_glGetUniformLocation(m_Program, "u_HasBaseNormal");
+    m_LocHasOverlayNormal = fn_glGetUniformLocation(m_Program, "u_HasOverlayNormal");
+    const GLint locLightDir = fn_glGetUniformLocation(m_Program, "u_TerrainLightDir");
+    const GLint locNormalStrength = fn_glGetUniformLocation(m_Program, "u_TerrainNormalStrength");
 
     // Assign default texture unit slots (u_BaseTex = 0, u_OverlayTex = 1)
     BindProgram(m_Program);
@@ -276,6 +300,14 @@ void TerrainShader::CreateGL()
     if (m_LocOverlayIsWater != -1) { fn_glUniform1i(m_LocOverlayIsWater, 0); FrameProfiler::CountGLCall(FrameProfiler::Counter::UniformWrites); }
     if (m_LocAlphaRef != -1) { fn_glUniform1f(m_LocAlphaRef, -1.0f); FrameProfiler::CountGLCall(FrameProfiler::Counter::UniformWrites); }
     m_LastAlphaRef = -1.0f;
+    if (m_LocBaseNormalTex != -1) fn_glUniform1i(m_LocBaseNormalTex, 2);
+    if (m_LocOverlayNormalTex != -1) fn_glUniform1i(m_LocOverlayNormalTex, 3);
+    if (m_LocHasBaseNormal != -1) fn_glUniform1i(m_LocHasBaseNormal, 0);
+    if (m_LocHasOverlayNormal != -1) fn_glUniform1i(m_LocHasOverlayNormal, 0);
+    if (locLightDir != -1 && fn_glUniform2f) fn_glUniform2f(locLightDir, 0.0f, -1.0f);
+    if (locNormalStrength != -1) fn_glUniform1f(locNormalStrength, 1.0f);
+    m_LastHasBaseNormal = 0;
+    m_LastHasOverlayNormal = 0;
     // GLP-04: reset to "unset", not 0 -- even though the default upload above sends 0/0, the
     // sentinel must not assume it always precedes the first real SetWaterFlags() call.
     m_LastBaseIsWater = -1;
@@ -369,6 +401,26 @@ void TerrainShader::SetWaterFlags(bool baseIsWater, bool overlayIsWater)
         fn_glUniform1i(m_LocOverlayIsWater, overlay);
         FrameProfiler::CountGLCall(FrameProfiler::Counter::UniformWrites);
         m_LastOverlayIsWater = overlay;
+    }
+}
+
+void TerrainShader::SetNormalTextures(GLuint baseNormalTex, GLuint overlayNormalTex)
+{
+    if (baseNormalTex != 0) BindTexture2D(2, baseNormalTex);
+    if (overlayNormalTex != 0) BindTexture2D(3, overlayNormalTex);
+
+    // Dirty-checked como SetWaterFlags: chamado uma vez por bucket.
+    const int hasBase = baseNormalTex != 0 ? 1 : 0;
+    if (m_LocHasBaseNormal != -1 && fn_glUniform1i && hasBase != m_LastHasBaseNormal) {
+        fn_glUniform1i(m_LocHasBaseNormal, hasBase);
+        FrameProfiler::CountGLCall(FrameProfiler::Counter::UniformWrites);
+        m_LastHasBaseNormal = hasBase;
+    }
+    const int hasOverlay = overlayNormalTex != 0 ? 1 : 0;
+    if (m_LocHasOverlayNormal != -1 && fn_glUniform1i && hasOverlay != m_LastHasOverlayNormal) {
+        fn_glUniform1i(m_LocHasOverlayNormal, hasOverlay);
+        FrameProfiler::CountGLCall(FrameProfiler::Counter::UniformWrites);
+        m_LastHasOverlayNormal = hasOverlay;
     }
 }
 
