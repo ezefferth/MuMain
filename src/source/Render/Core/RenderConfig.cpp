@@ -25,6 +25,9 @@ bool g_VSyncEnabled = true;
 // See RenderConfig.h -- opt-in until the reordering has been confirmed by eye.
 bool g_SortParticleDraws = false;
 
+// See RenderConfig.h.
+bool g_RemasterLighting = true;
+
 void InitRenderConfig()
 {
     wchar_t configPath[MAX_PATH];
@@ -61,6 +64,10 @@ void InitRenderConfig()
     int sortParticleDraws = GetPrivateProfileIntW(CfgSections::CfgSectionRender, CfgKeys::CfgKeySortParticleDraws,
         CfgDefaults::CfgDefaultSortParticleDraws ? 1 : 0, configPath);
     g_SortParticleDraws = (sortParticleDraws != 0);
+
+    int remasterLighting = GetPrivateProfileIntW(CfgSections::CfgSectionRender, CfgKeys::CfgKeyRemasterLighting,
+        CfgDefaults::CfgDefaultRemasterLighting ? 1 : 0, configPath);
+    g_RemasterLighting = (remasterLighting != 0);
 }
 
 void BuildPerspectiveProjection(float f, float aspect, float zNear, float zFar, float out[16])

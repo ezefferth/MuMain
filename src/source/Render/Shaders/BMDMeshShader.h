@@ -16,6 +16,10 @@ public:
 
     void SetTexture(GLuint texID, int slot = 0);
 
+    // Remaster: vale só para o próximo Bind() (zerado depois dele), para que caminhos de
+    // desenho que não chamam isto nunca herdem o estado. normalTexID 0 = sem normal map.
+    void SetRemaster(bool perPixelLighting, GLuint normalTexID, float normalStrength);
+
     GLuint GetProgram() const { return m_Program; }
     bool IsCreated() const { return m_Program != 0; }
 
@@ -38,6 +42,11 @@ private:
     GLint m_LocChromeTex1 = -1; // RenderMode 4+ (item specular): sampler, "Chrome1" texture (BITMAP_CHROME)
     GLint m_LocMetalTex   = -1; // RenderMode 5+ (item specular tier 2+, CHROME_METAL/FULL_SPECULAR): static MatCap sampler (BITMAP_SHINY)
     GLint m_LocChromeTex2 = -1; // RenderMode 6/7 (item specular tier 3/4): animated sampler (BITMAP_CHROME2)
+    GLint m_LocNormalTex  = -1; // Remaster: normal map (slot 4)
+
+    bool   m_PendingRemaster = false;
+    GLuint m_PendingNormalTex = 0;
+    float  m_PendingNormalStrength = 1.0f;
 
     // GLS-09: all non-sampler BMDMeshShader uniforms, consolidated into one std140 UBO
     // (binding slot 6) instead of ~18 discrete glUniform* calls per draw. Field order/
@@ -65,8 +74,12 @@ private:
         float   _pad0;
         float   specularTint[3];
         float   _pad1;
+        int32_t remaster;        // 1 = iluminação por pixel (RenderMode 0, GPU skin, luz ligada)
+        int32_t hasNormalMap;
+        float   normalStrength;
+        float   _pad2;
     };
-    static_assert(sizeof(BMDFlagsCB) == 176, "BMDFlagsCB must match the GLSL BMDFlags block layout byte-for-byte");
+    static_assert(sizeof(BMDFlagsCB) == 192, "BMDFlagsCB must match the GLSL BMDFlags block layout byte-for-byte");
 
     RHI::BufferHandle m_BMDFlagsUBO;
 };

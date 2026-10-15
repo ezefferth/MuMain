@@ -1329,6 +1329,19 @@ void BMD::RenderMesh(int meshIndex, int renderFlags, float alpha, int blendMeshI
         textureIndex = explicitTextureIndex;
     }
 
+    // Remaster: normal map só quando a malha usa a própria textura (não água animada nem
+    // textura trocada pelo jogo, como pele/cor de armadura).
+    GLuint normalTexID = 0;
+    if (g_RemasterLighting && textureIndex == static_cast<int>(IndexTexture[m->Texture])
+        && m->Texture >= 0 && static_cast<size_t>(m->Texture) < NormalTexture.size()
+        && NormalTexture[m->Texture] != BITMAP_UNKNOWN)
+    {
+        if (BITMAP_t* normalBitmap = Bitmaps.FindTexture(NormalTexture[m->Texture]))
+        {
+            normalTexID = normalBitmap->TextureNumber;
+        }
+    }
+
     const auto texture = Bitmaps.GetTexture(textureIndex);
     if (texture->IsSkin && HideSkin)
     {
@@ -1827,6 +1840,7 @@ void BMD::RenderMesh(int meshIndex, int renderFlags, float alpha, int blendMeshI
                 BodyLight[2] * blendTintAlpha
             };
 
+            BMDMeshShader::Instance().SetRemaster(g_RemasterLighting, normalTexID, 1.0f);
             BMDMeshShader::Instance().Bind(shaderRenderMode, EnableWave ? blendMeshTextureCoordU : 0.0f, EnableWave ? blendMeshTextureCoordV : 0.0f, activeTexID, mvp, 1, gpuBodyOrigin, gpuBodyScale, wave, chromeTex1ID, specularTint, metalTexID, chromeTex2ID, chromeWave2, chromeLightVecX, chromeLightVecY, m_LastLightPosition, shaderBodyLight, useLight ? 1 : 0, alpha, chromeVariant, chromeTimeTerm);
 
             const int flatCount  = m_MeshIndexCount[meshIndex];

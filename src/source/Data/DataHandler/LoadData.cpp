@@ -82,6 +82,23 @@ void CLoadData::OpenTexture(int Model, const wchar_t* SubFolder, int Wrap, int T
             pModel->IndexTexture[i] = Bitmaps.LoadImage(szFullPath, Type, Wrap);
         }
 
+        // Remaster: normal map opcional "<textura>_N.jpg" ao lado da original (gerado por
+        // tools/mu-assets). Sem o arquivo, LoadImage falha em silêncio e fica BITMAP_UNKNOWN.
+        if (pModel->NormalTexture.size() != static_cast<size_t>(pModel->NumMeshs))
+        {
+            pModel->NormalTexture.assign(pModel->NumMeshs, BITMAP_UNKNOWN);
+        }
+        if (pModel->IndexTexture[i] != BITMAP_HIDE && pModel->IndexTexture[i] != BITMAP_UNKNOWN)
+        {
+            std::wstring normalPath(szFullPath);
+            const auto dot = normalPath.find_last_of(L'.');
+            if (dot != std::wstring::npos)
+            {
+                normalPath = normalPath.substr(0, dot) + L"_N.jpg";
+                pModel->NormalTexture[i] = Bitmaps.LoadImage(normalPath, GL_LINEAR, Wrap);
+            }
+        }
+
         bool isSkin = (pTexture->FileName[0] == 's' && pTexture->FileName[1] == 'k' && pTexture->FileName[2] == 'i')
             || !wcsnicmp(textureFileName, L"level", 5);
         bool isHair = pTexture->FileName[0] == 'h' && pTexture->FileName[1] == 'a' && pTexture->FileName[2] == 'i' && pTexture->FileName[3] == 'r';

@@ -157,6 +157,10 @@ layout(std140) uniform BMDFlags {
     float _pad0;
     vec3  u_SpecularTint; // RenderMode 4+ only
     float _pad1;
+    int   u_Remaster;
+    int   u_HasNormalMap;
+    float u_NormalStrength;
+    float _pad2;
 };
 
 out vec2 v_UV;
@@ -171,9 +175,13 @@ out vec2 v_ChromeUVStatic;
 // CPU g_chrome[] RENDER_CHROME2 formula — a different animated-UV formula from v_ChromeUV's default
 // RENDER_CHROME one, driven by u_ChromeWave2 (Wave2s) instead of u_ChromeWave.
 out vec2 v_ChromeUV2;
+// Remaster: normal e posição no espaço do esqueleto (o mesmo de u_LightDir), por pixel.
+out vec3 v_Normal;
+out vec3 v_LocalPos;
 
 void main() {
     vec3 skinnedNormal = a_Normal;
+    v_LocalPos = a_Pos;
     vec2 chromeUV = a_UV;
     vec4 gpuSkinColor = a_Color;
     v_ChromeUVStatic = vec2(0.5);
@@ -197,6 +205,7 @@ void main() {
         vec3 bonePos = vec3(dot(r0, p), dot(r1, p), dot(r2, p));
         vec3 worldPos = u_BodyOrigin + u_BodyScale * bonePos;
         gl_Position = u_MVPDraw * vec4(worldPos, 1.0);
+        v_LocalPos = bonePos;
         // Rotation-only skin of the rest normal, matching BMD::Transform's CPU
         // VectorRotate(sn->Normal, BoneMatrix[sn->Node], tn) — same rows as position, dropping
         // the translation component (row.xyz only, no homogeneous term).
@@ -239,6 +248,7 @@ void main() {
         gl_Position = u_MVPDraw * vec4(a_Pos, 1.0);
     }
     v_Color = gpuSkinColor;
+    v_Normal = skinnedNormal;
     v_ChromeUV = chromeUV;
     if (u_RenderMode == 0) {
         v_UV = a_UV + vec2(u_WaveOffsetU, u_WaveOffsetV);
@@ -291,6 +301,7 @@ uniform sampler2D u_Tex;
 uniform sampler2D u_ChromeTex1;   // RenderMode 4+ only
 uniform sampler2D u_MetalTex;     // RenderMode 5+ only
 uniform sampler2D u_ChromeTex2;   // RenderMode 6 only
+uniform sampler2D u_NormalTex;    // Remaster: normal map
 
 // GLS-09: same BMDFlags block as the vertex shader (identical layout required in every
 // stage that uses it). Only u_RenderMode, u_AlphaRef, and u_SpecularTint are read here;
@@ -318,6 +329,10 @@ layout(std140) uniform BMDFlags {
     float _pad0;
     vec3  u_SpecularTint; // RenderMode 4+ only
     float _pad1;
+    int   u_Remaster;
+    int   u_HasNormalMap;
+    float u_NormalStrength;
+    float _pad2;
 };
 
 in vec2 v_UV;
@@ -325,8 +340,30 @@ in vec4 v_Color;
 in vec2 v_ChromeUV;
 in vec2 v_ChromeUVStatic;
 in vec2 v_ChromeUV2;
+in vec3 v_Normal;
+in vec3 v_LocalPos;
 
 out vec4 fragColor;
+
+// Remaster: normal map sem tangentes pré-calculadas (o BMD não as guarda) -- base tangente
+// montada das derivadas de posição e UV na tela (Schüler, "Normal Mapping Without
+// Precomputed Tangents").
+vec3 PerturbNormal(vec3 N) {
+    vec3 dp1 = dFdx(v_LocalPos);
+    vec3 dp2 = dFdy(v_LocalPos);
+    vec2 duv1 = dFdx(v_UV);
+    vec2 duv2 = dFdy(v_UV);
+    vec3 dp2perp = cross(dp2, N);
+    vec3 dp1perp = cross(N, dp1);
+    vec3 T = dp2perp * duv1.x + dp1perp * duv2.x;
+    vec3 B = dp2perp * duv1.y + dp1perp * duv2.y;
+    float len2 = max(dot(T, T), dot(B, B));
+    if (len2 < 1e-20) return N; // UV degenerado: mantém a normal da malha
+    float invmax = inversesqrt(len2);
+    vec3 nm = texture(u_NormalTex, v_UV).xyz * 2.0 - 1.0;
+    nm.xy *= u_NormalStrength;
+    return normalize(mat3(T * invmax, B * invmax, N) * nm);
+}
 
 void main() {
     // Clamp v_Color to [0, 1] to match FFP vertex color clamping.
@@ -377,6 +414,16 @@ void main() {
         vec4 metal   = texture(u_MetalTex, v_ChromeUVStatic);
         vec4 chrome1 = texture(u_ChromeTex1, v_ChromeUVStatic);
         fragColor = vec4((base.rgb + chrome2.rgb) * c.rgb + (metal.rgb + chrome1.rgb) * u_SpecularTint, base.a);
+    } else if (u_RenderMode == 0 && u_Remaster == 1 && u_UseGPUSkin == 1 && u_LightEnable == 1) {
+        // Remaster: a mesma fórmula da luz por vértice original (lum = N.L*0.8+0.4, mínimo 0.2),
+        // calculada por pixel com a normal interpolada e, se houver, perturbada pelo normal map.
+        vec3 N = normalize(v_Normal);
+        if (u_HasNormalMap == 1) {
+            N = PerturbNormal(N);
+        }
+        float lum = max(dot(N, u_LightDir) * 0.8 + 0.4, 0.2);
+        vec4 lit = clamp(vec4(u_BodyLight * lum, u_Alpha), 0.0, 1.0);
+        fragColor = texture(u_Tex, v_UV) * lit;
     } else {
         // RENDER_TEXTURE / RENDER_CHROME: texture modulated by clamped vertex color
         fragColor = texture(u_Tex, v_UV) * c;
@@ -505,12 +552,14 @@ void BMDMeshShader::CreateGL()
     m_LocChromeTex1 = fn_glGetUniformLocation(m_Program, "u_ChromeTex1");
     m_LocMetalTex   = fn_glGetUniformLocation(m_Program, "u_MetalTex");
     m_LocChromeTex2 = fn_glGetUniformLocation(m_Program, "u_ChromeTex2");
+    m_LocNormalTex  = fn_glGetUniformLocation(m_Program, "u_NormalTex");
 
     BindProgram(m_Program);
     if (m_LocTex != -1) { fn_glUniform1i(m_LocTex, 0); FrameProfiler::CountGLCall(FrameProfiler::Counter::UniformWrites); }
     if (m_LocChromeTex1 != -1) { fn_glUniform1i(m_LocChromeTex1, 1); FrameProfiler::CountGLCall(FrameProfiler::Counter::UniformWrites); }
     if (m_LocMetalTex != -1) { fn_glUniform1i(m_LocMetalTex, 2); FrameProfiler::CountGLCall(FrameProfiler::Counter::UniformWrites); }
     if (m_LocChromeTex2 != -1) { fn_glUniform1i(m_LocChromeTex2, 3); FrameProfiler::CountGLCall(FrameProfiler::Counter::UniformWrites); }
+    if (m_LocNormalTex != -1) { fn_glUniform1i(m_LocNormalTex, 4); FrameProfiler::CountGLCall(FrameProfiler::Counter::UniformWrites); }
     BindProgram(0);
 
     g_ErrorReport.Write(L"[BMDMeshShader] Created program ID %d\r\n", m_Program);
@@ -586,6 +635,9 @@ void BMDMeshShader::BindGL(int renderMode, float waveOffsetU, float waveOffsetV,
     cb.lightEnable = lightEnable;
     memcpy(cb.bodyLight, bodyLight ? bodyLight : whiteLight, sizeof(cb.bodyLight));
     memcpy(cb.specularTint, specularTint ? specularTint : whiteTint, sizeof(cb.specularTint));
+    cb.remaster = m_PendingRemaster ? 1 : 0;
+    cb.hasNormalMap = (m_PendingRemaster && m_PendingNormalTex != 0) ? 1 : 0;
+    cb.normalStrength = m_PendingNormalStrength;
 
     if (m_BMDFlagsUBO.IsValid()) {
         RHI::UpdateUniformBlock(m_BMDFlagsUBO, &cb, sizeof(cb));
@@ -604,9 +656,23 @@ void BMDMeshShader::BindGL(int renderMode, float waveOffsetU, float waveOffsetV,
     if (renderMode == 6 || renderMode == 7) {
         SetTexture(chromeTex2ID, 3);
     }
+    if (cb.hasNormalMap) {
+        SetTexture(m_PendingNormalTex, 4);
+    }
     if (texID != 0) {
         SetTexture(texID, 0);
     }
+
+    m_PendingRemaster = false;
+    m_PendingNormalTex = 0;
+    m_PendingNormalStrength = 1.0f;
+}
+
+void BMDMeshShader::SetRemaster(bool perPixelLighting, GLuint normalTexID, float normalStrength)
+{
+    m_PendingRemaster = perPixelLighting;
+    m_PendingNormalTex = normalTexID;
+    m_PendingNormalStrength = normalStrength;
 }
 
 void BMDMeshShader::SetTexture(GLuint texID, int slot)

@@ -184,6 +184,9 @@ public:
     Action_t* Actions;
     Texture_t* Textures;
     GLuint* IndexTexture;
+    // Remaster: normal map opcional por textura (mesmo índice de IndexTexture);
+    // BITMAP_UNKNOWN quando não existe <textura>_N.jpg. Preenchido em CLoadData::OpenTexture.
+    std::vector<GLuint> NormalTexture;
 
     short         NumLightMaps;  //ver1.2
     short         IndexLightMap; //ver1.2

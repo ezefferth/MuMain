@@ -52,6 +52,9 @@ namespace CfgKeys
     // of one draw each. Only reorders runs whose result cannot depend on draw order; 0 keeps
     // the historical slot order. Opt-in until it has been visually checked on real effects.
     inline constexpr wchar_t CfgKeySortParticleDraws[] = L"SortParticleDraws";
+    // Remaster: iluminação por pixel + normal maps opcionais (<textura>_N.jpg) nos modelos BMD.
+    // 0 = iluminação por vértice original.
+    inline constexpr wchar_t CfgKeyRemasterLighting[] = L"RemasterLighting";
 }
 
 namespace CfgDefaults
@@ -92,4 +95,6 @@ namespace CfgDefaults
 
     // Off until the reordering has been eyeballed against real effects on target hardware.
     inline constexpr bool CfgDefaultSortParticleDraws = false;
+
+    inline constexpr bool CfgDefaultRemasterLighting = true;
 }

@@ -30,6 +30,10 @@ extern float g_AlphaFuncRef;
 // until that has been confirmed by eye against real effects.
 extern bool g_SortParticleDraws;
 
+// Remaster: iluminação por pixel e normal maps nos modelos BMD, de config.ini [Render]
+// RemasterLighting (padrão 1). 0 volta à iluminação por vértice original.
+extern bool g_RemasterLighting;
+
 // Vsync flag mirroring SDL's actual swap interval (ZzzOpenglUtil.cpp's EnableVSync/
 // DisableVSync call SDL_GL_SetSwapInterval). Default true matches EnableVSync()'s
 // unconditional call at boot (Winmain.cpp).
