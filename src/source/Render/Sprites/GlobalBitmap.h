@@ -96,6 +96,9 @@ class CGlobalBitmap
     {
         MAX_WIDTH = 1024,
         MAX_HEIGHT = 1024,
+        // Resolução máxima da imagem de uma textura remasterizada (HD). O tamanho lógico,
+        // que o jogo usa como medida, continua limitado a MAX_WIDTH/MAX_HEIGHT.
+        MAX_HD_SIZE = 4096,
     };
 
     using BitmapPtr = std::unique_ptr<BITMAP_t>;

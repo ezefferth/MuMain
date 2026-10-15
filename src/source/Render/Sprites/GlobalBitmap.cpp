@@ -72,6 +72,59 @@ namespace
         return std::min<int>(result, maxValue);
     }
 
+    // Texturas remasterizadas (tools/mu-assets/upscale_cliente.py do projeto mu) guardam o
+    // tamanho original da imagem. Width/Height do BITMAP_t recebem esse tamanho lógico, porque
+    // o jogo usa o tamanho da textura como medida (ex.: altura do capim, layout da UI); só a
+    // imagem enviada à GPU usa a resolução real.
+    //   .OZJ: prefixo de 24 bytes = "MUHD" + uint16 largura + uint16 altura lógicas
+    //   .OZT: prefixo de 4 bytes = "MHD\x01"; tamanho lógico nos campos x/y-origin do TGA
+    struct LogicalSize
+    {
+        int width = 0;
+        int height = 0;
+    };
+
+    LogicalSize ReadHdOzjLogicalSize(const std::vector<unsigned char>& file)
+    {
+        if (file.size() < 24 || std::memcmp(file.data(), "MUHD", 4) != 0)
+        {
+            return {};
+        }
+        std::uint16_t w = 0, h = 0;
+        std::memcpy(&w, &file[4], sizeof(w));
+        std::memcpy(&h, &file[6], sizeof(h));
+        return { w, h };
+    }
+
+    LogicalSize ReadHdOztLogicalSize(const std::vector<unsigned char>& file)
+    {
+        if (file.size() < 22 || std::memcmp(file.data(), "MHD\x01", 4) != 0)
+        {
+            return {};
+        }
+        std::uint16_t w = 0, h = 0;
+        std::memcpy(&w, &file[12], sizeof(w)); // TGA x-origin (4 + 8)
+        std::memcpy(&h, &file[14], sizeof(h)); // TGA y-origin (4 + 10)
+        return { w, h };
+    }
+
+    // Tamanho lógico (potência de 2) a expor em BITMAP_t::Width/Height. Retorna o tamanho real
+    // quando a textura não é HD ou quando a proporção HD/original não é exata, para que as
+    // coordenadas de textura (pixel / Width) continuem válidas.
+    int LogicalPowerOfTwo(int realSize, int realPow2, int logicalSize, int maxLogical)
+    {
+        if (logicalSize <= 0 || logicalSize > maxLogical)
+        {
+            return realPow2;
+        }
+        const int logicalPow2 = NextPowerOfTwo(logicalSize, maxLogical);
+        if (static_cast<long long>(realSize) * logicalPow2 != static_cast<long long>(logicalSize) * realPow2)
+        {
+            return realPow2;
+        }
+        return logicalPow2;
+    }
+
     std::string NarrowPath(const std::wstring& wide)
     {
         std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>> conv;
@@ -621,8 +674,12 @@ bool CGlobalBitmap::OpenJpegTurbo(GLuint uiBitmapIndex, const std::wstring& file
         return false;
     }
 
+    const LogicalSize hd = ReadHdOzjLogicalSize(jpegBuf);
+    const int maxWidth = hd.width > 0 ? MAX_HD_SIZE : MAX_WIDTH;
+    const int maxHeight = hd.height > 0 ? MAX_HD_SIZE : MAX_HEIGHT;
+
     auto headerResult = tjDecompressHeader3(tjHandle.get(), jpegData, jpegSize, &jpegWidth, &jpegHeight, &jpegSubsamp, &jpegColorspace);
-    if (headerResult != 0 || jpegWidth <= 0 || jpegHeight <= 0 || jpegWidth > MAX_WIDTH || jpegHeight > MAX_HEIGHT)
+    if (headerResult != 0 || jpegWidth <= 0 || jpegHeight <= 0 || jpegWidth > maxWidth || jpegHeight > maxHeight)
     {
         ReportTurboError(L"tjDecompressHeader3");
         return false;
@@ -645,8 +702,8 @@ bool CGlobalBitmap::OpenJpegTurbo(GLuint uiBitmapIndex, const std::wstring& file
         return false;
     }
 
-    const int textureWidth = NextPowerOfTwo(jpegWidth, MAX_WIDTH);
-    const int textureHeight = NextPowerOfTwo(jpegHeight, MAX_HEIGHT);
+    const int textureWidth = NextPowerOfTwo(jpegWidth, maxWidth);
+    const int textureHeight = NextPowerOfTwo(jpegHeight, maxHeight);
 
     auto pNewBitmap = std::make_unique<BITMAP_t>();
 
@@ -655,8 +712,8 @@ bool CGlobalBitmap::OpenJpegTurbo(GLuint uiBitmapIndex, const std::wstring& file
     wcsncpy(pNewBitmap->FileName, filename.c_str(), MAX_BITMAP_FILE_NAME - 1);
     pNewBitmap->FileName[MAX_BITMAP_FILE_NAME - 1] = L'\0';
 
-    pNewBitmap->Width = static_cast<float>(textureWidth);
-    pNewBitmap->Height = static_cast<float>(textureHeight);
+    pNewBitmap->Width = static_cast<float>(LogicalPowerOfTwo(jpegWidth, textureWidth, hd.width, MAX_WIDTH));
+    pNewBitmap->Height = static_cast<float>(LogicalPowerOfTwo(jpegHeight, textureHeight, hd.height, MAX_HEIGHT));
     // DXP-12: RHI's texture format contract is RGBA8 always (DXGI has no 24-bit RGB format), so
     // the RGB->RGBA expansion (alpha=255) that used to happen implicitly on the GL side (upload
     // format=GL_RGB into an internalformat=GL_RGBA8 texture) now happens explicitly here, in the
@@ -741,13 +798,23 @@ bool CGlobalBitmap::OpenTga(GLuint uiBitmapIndex, const std::wstring& filename, 
     const char bit = pakBuffer[index]; index += 1;
     index += 1;
 
-    if (bit != 32 || nx <= 0 || ny <= 0 || nx > MAX_WIDTH || ny > MAX_HEIGHT)
+    const LogicalSize hd = ReadHdOztLogicalSize(pakBuffer);
+    const int maxWidth = hd.width > 0 ? MAX_HD_SIZE : MAX_WIDTH;
+    const int maxHeight = hd.height > 0 ? MAX_HD_SIZE : MAX_HEIGHT;
+
+    if (bit != 32 || nx <= 0 || ny <= 0 || nx > maxWidth || ny > maxHeight)
     {
         return false;
     }
 
-    const int Width = NextPowerOfTwo(nx, MAX_WIDTH);
-    const int Height = NextPowerOfTwo(ny, MAX_HEIGHT);
+    // O loop abaixo lê nx * ny pixels a partir de index; arquivo truncado não pode estourar.
+    if (pakBuffer.size() < static_cast<std::size_t>(index) + static_cast<std::size_t>(nx) * static_cast<std::size_t>(ny) * 4u)
+    {
+        return false;
+    }
+
+    const int Width = NextPowerOfTwo(nx, maxWidth);
+    const int Height = NextPowerOfTwo(ny, maxHeight);
 
     auto pNewBitmap = std::make_unique<BITMAP_t>();
 
@@ -756,8 +823,8 @@ bool CGlobalBitmap::OpenTga(GLuint uiBitmapIndex, const std::wstring& filename, 
     wcsncpy(pNewBitmap->FileName, filename.c_str(), MAX_BITMAP_FILE_NAME - 1);
     pNewBitmap->FileName[MAX_BITMAP_FILE_NAME - 1] = L'\0';
 
-    pNewBitmap->Width = static_cast<float>(Width);
-    pNewBitmap->Height = static_cast<float>(Height);
+    pNewBitmap->Width = static_cast<float>(LogicalPowerOfTwo(nx, Width, hd.width, MAX_WIDTH));
+    pNewBitmap->Height = static_cast<float>(LogicalPowerOfTwo(ny, Height, hd.height, MAX_HEIGHT));
     pNewBitmap->Components = 4;
     pNewBitmap->Ref = 1;
 
