@@ -28,6 +28,7 @@ bool g_SortParticleDraws = false;
 // See RenderConfig.h.
 bool g_RemasterLighting = true;
 bool g_RemasterRimTarget = false;
+float g_RemasterRimStrength = 0.0f;
 
 void InitRenderConfig()
 {
@@ -69,6 +70,10 @@ void InitRenderConfig()
     int remasterLighting = GetPrivateProfileIntW(CfgSections::CfgSectionRender, CfgKeys::CfgKeyRemasterLighting,
         CfgDefaults::CfgDefaultRemasterLighting ? 1 : 0, configPath);
     g_RemasterLighting = (remasterLighting != 0);
+
+    const int remasterRim = GetPrivateProfileIntW(CfgSections::CfgSectionRender, CfgKeys::CfgKeyRemasterRim,
+        CfgDefaults::CfgDefaultRemasterRim, configPath);
+    g_RemasterRimStrength = (remasterRim > 0 ? remasterRim : 0) / 100.0f;
 }
 
 void BuildPerspectiveProjection(float f, float aspect, float zNear, float zFar, float out[16])

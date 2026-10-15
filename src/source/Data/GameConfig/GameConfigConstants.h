@@ -55,6 +55,9 @@ namespace CfgKeys
     // Remaster: iluminação por pixel + normal maps opcionais (<textura>_N.jpg) nos modelos BMD.
     // 0 = iluminação por vértice original.
     inline constexpr wchar_t CfgKeyRemasterLighting[] = L"RemasterLighting";
+    // Remaster: luz de contorno nos personagens, em centésimos (45 = 0.45). 0 = desligada.
+    // Desligada por padrão: modelos finos (aranhas) ficam esbranquiçados.
+    inline constexpr wchar_t CfgKeyRemasterRim[] = L"RemasterRim";
 }
 
 namespace CfgDefaults
@@ -97,4 +100,5 @@ namespace CfgDefaults
     inline constexpr bool CfgDefaultSortParticleDraws = false;
 
     inline constexpr bool CfgDefaultRemasterLighting = true;
+    inline constexpr int  CfgDefaultRemasterRim = 0;
 }

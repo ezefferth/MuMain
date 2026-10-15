@@ -37,6 +37,8 @@ extern bool g_RemasterLighting;
 // Remaster: verdadeiro enquanto RenderCharactersClient desenha um personagem (jogador, NPC,
 // monstro). O shader de modelos usa para aplicar a luz de contorno (rim light) só neles.
 extern bool g_RemasterRimTarget;
+// Força da luz de contorno, de config.ini [Render] RemasterRim (centésimos; 0 = desligada).
+extern float g_RemasterRimStrength;
 
 // Vsync flag mirroring SDL's actual swap interval (ZzzOpenglUtil.cpp's EnableVSync/
 // DisableVSync call SDL_GL_SetSwapInterval). Default true matches EnableVSync()'s
